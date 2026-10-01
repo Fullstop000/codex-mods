@@ -1,0 +1,30 @@
+{
+  "name": "@fullstop000/codex-plugins",
+  "version": "0.1.0",
+  "description": "Local runtime extensions for the official Codex desktop app via loopback CDP.",
+  "type": "module",
+  "bin": {
+    "codex-plugins": "./src/cli.js"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fullstop000/codex-plugins.git"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/unit.test.js",
+    "test:browser": "node --test test/browser.test.js",
+    "check": "node --check src/cli.js && node --check src/renderer.js && node --check src/runner.js"
+  },
+  "devDependencies": {
+    "playwright": "1.58.2"
+  }
+}
