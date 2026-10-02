@@ -151,4 +151,4 @@ CDP 只能绑定本机回环地址，连接器拒绝外部地址和未验证的 
 - [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/)。
 - [上游时间显示 feature request #49895](https://github.com/openai/codex/issues/49895)。
 
-MIT License。
+Apache License 2.0。
