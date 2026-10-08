@@ -10,7 +10,7 @@ import { chromium } from 'playwright';
 import { payload, cleanupExpression } from '../src/renderer.js';
 import { targets, CDP } from '../src/cdp.js';
 
-const fixture = `<!doctype html><html><head><meta charset="utf-8"><title>Codex Plugins compatibility fixture</title>
+const fixture = `<!doctype html><html><head><meta charset="utf-8"><title>Codex Mods compatibility fixture</title>
 <style>
 body{margin:0;background:#f8f5ef;color:#65617c;font:15px system-ui}aside{width:min(370px,90vw);padding:18px;border-right:1px solid #e0dcd5}h2{font-size:16px}button{display:flex;align-items:center;gap:4px;width:100%;padding:12px 8px;margin:4px 0;border:0;border-radius:10px;background:transparent;color:inherit;text-align:left;font:inherit}button:hover{background:#ece8e2}.title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status{flex-shrink:0}main{padding:20px}#clicked{margin:12px}
 </style></head><body><aside data-sidebar><h2>Example project</h2>
@@ -26,7 +26,7 @@ document.querySelector('aside').addEventListener('click',event=>{const row=event
 </script></body></html>`;
 let browser, page, server, origin, endpoint;
 const errors = [];
-const cliPath = process.env.CODEX_PLUGINS_BIN || fileURLToPath(new URL('../src/cli.js', import.meta.url));
+const cliPath = process.env.CODEX_MODS_BIN || fileURLToPath(new URL('../src/cli.js', import.meta.url));
 
 async function freePort() {
   const socket = createServer();
@@ -55,7 +55,7 @@ after(async () => { await browser?.close(); if (server) await new Promise(resolv
 
 const go = () => page.goto(origin);
 const install = options => page.evaluate(payload({ refreshMs: 1000, ...options }));
-const badges = () => page.locator('[data-codex-plugins-time]').allTextContents();
+const badges = () => page.locator('[data-codex-mods-time]').allTextContents();
 const row = id => page.locator(`[data-app-action-sidebar-thread-id="local:${id}"]`);
 async function waitFor(predicate, message, timeout = 12000) {
   const deadline = Date.now() + timeout;
@@ -68,7 +68,7 @@ async function waitFor(predicate, message, timeout = 12000) {
 
 test('rendered badges use recency, preserve titles/actions, and stay in the sidebar', async () => {
   await go();
-  assert.equal(await page.title(), 'Codex Plugins compatibility fixture');
+  assert.equal(await page.title(), 'Codex Mods compatibility fixture');
   assert.equal(page.url(), origin + '/');
   assert.ok((await page.locator('body').innerText()).includes('Example project'));
   assert.equal(await page.locator('vite-error-overlay, nextjs-portal, #webpack-dev-server-client-overlay').count(), 0);
@@ -76,12 +76,12 @@ test('rendered badges use recency, preserve titles/actions, and stay in the side
   assert.equal(state.badges, 3);
   assert.deepEqual(await badges(), ['5m', '14h', '3d']);
   assert.equal(await row('b').locator('.title').textContent(), 'Review workflow safeguards');
-  assert.equal(await page.locator('#outside [data-codex-plugins-time]').count(), 0);
+  assert.equal(await page.locator('#outside [data-codex-mods-time]').count(), 0);
   await row('b').click();
   assert.equal(await page.locator('#clicked').textContent(), 'Review workflow safeguards');
-  assert.ok(await row('b').locator('[data-codex-plugins-time]').getAttribute('title'));
-  assert.match(await row('b').locator('[data-codex-plugins-time]').getAttribute('aria-label'), /Last activity/);
-  await page.screenshot({ path: join(tmpdir(), 'codex-plugins-sidebar-desktop.png') });
+  assert.ok(await row('b').locator('[data-codex-mods-time]').getAttribute('title'));
+  assert.match(await row('b').locator('[data-codex-mods-time]').getAttribute('aria-label'), /Last activity/);
+  await page.screenshot({ path: join(tmpdir(), 'codex-mods-sidebar-desktop.png') });
 });
 
 test('React-style row replacement and live metadata updates restore the correct badges', async () => {
@@ -93,7 +93,7 @@ test('React-style row replacement and live metadata updates restore the correct 
     window.snapshot.catalogSnapshot.entries[1].recencyAt = Math.floor(Date.now()/1000) - 120;
   });
   await waitFor(async () => (await badges()).includes('2m'), 'Metadata did not refresh');
-  assert.equal(await row('b').locator('[data-codex-plugins-time]').count(), 1);
+  assert.equal(await row('b').locator('[data-codex-mods-time]').count(), 1);
   await page.evaluate(() => {
     const row = document.querySelector('[data-app-action-sidebar-thread-id="local:a"]');
     row.setAttribute('data-app-action-sidebar-thread-id', 'local:missing');
@@ -111,7 +111,7 @@ test('host-qualified IDs work; ambiguous unqualified IDs are skipped', async () 
   });
   assert.equal((await install()).badges, 2);
   assert.deepEqual(await badges(), ['1h', '2h']);
-  assert.equal(await page.locator('[data-thread-id="same"] [data-codex-plugins-time]').count(), 0);
+  assert.equal(await page.locator('[data-thread-id="same"] [data-codex-mods-time]').count(), 0);
 });
 
 test('late bootstrap availability and DOM metadata are handled without guessing', async () => {
@@ -126,10 +126,10 @@ test('late bootstrap availability and DOM metadata are handled without guessing'
 test('reinstall and dispose leave no duplicate badges, classes or active observers', async () => {
   await go(); await install(); await install();
   assert.equal((await badges()).length, 3);
-  assert.equal(await page.locator('[data-codex-plugins-style]').count(), 1);
+  assert.equal(await page.locator('[data-codex-mods-style]').count(), 1);
   await page.evaluate(cleanupExpression);
   assert.equal((await badges()).length, 0);
-  assert.equal(await page.locator('.codex-plugins-time-row, [data-codex-plugins-style]').count(), 0);
+  assert.equal(await page.locator('.codex-mods-time-row, [data-codex-mods-style]').count(), 0);
   await page.evaluate(() => document.querySelector('aside').append(document.createElement('button')));
   await new Promise(resolve => setTimeout(resolve, 1100));
   assert.equal((await badges()).length, 0);
@@ -140,7 +140,7 @@ test('compact viewport keeps time and status controls within each row', async ()
   await go(); await install();
   for (const id of ['a', 'b', 'c']) {
     const parent = await row(id).boundingBox();
-    const badge = await row(id).locator('[data-codex-plugins-time]').boundingBox();
+    const badge = await row(id).locator('[data-codex-mods-time]').boundingBox();
     const status = await row(id).locator('.status').boundingBox();
     assert.ok(badge.x >= parent.x && badge.x+badge.width <= parent.x+parent.width);
     assert.ok(badge.x+badge.width < status.x);
@@ -148,15 +148,15 @@ test('compact viewport keeps time and status controls within each row', async ()
   }
   await row('a').click();
   assert.equal(await page.locator('#clicked').textContent(), 'Investigate task generation');
-  await page.screenshot({ path: join(tmpdir(), 'codex-plugins-sidebar-compact.png') });
+  await page.screenshot({ path: join(tmpdir(), 'codex-mods-sidebar-compact.png') });
   await page.setViewportSize({ width: 1100, height: 650 });
 });
 
 test('real CLI + CDP reinject on reload and disable removes future registrations', async () => {
   await go();
-  const directory = await mkdtemp(join(tmpdir(), 'codex-plugins-e2e-'));
+  const directory = await mkdtemp(join(tmpdir(), 'codex-mods-e2e-'));
   const cli = cliPath;
-  const environment = { ...process.env, CODEX_PLUGINS_STATE_DIR: directory };
+  const environment = { ...process.env, CODEX_MODS_STATE_DIR: directory };
   const child = spawn(process.execPath, [cli, 'enable', 'sidebar-time', '--endpoint', endpoint, '--no-launch', '--fixture', '--refresh-ms', '1000'], { env: environment });
   let output = '';
   child.stdout.on('data', data => { output += data; }); child.stderr.on('data', data => { output += data; });
@@ -173,7 +173,7 @@ test('real CLI + CDP reinject on reload and disable removes future registrations
     } finally { if (process.platform !== 'win32') child.kill('SIGCONT'); }
     const target = (await targets(endpoint, true)).find(target => target.url === origin + '/');
     const client = await CDP.connect(target, endpoint);
-    try { assert.equal((await client.evaluate('globalThis.__codexPluginsSidebarTime.status()')).badges, 3); }
+    try { assert.equal((await client.evaluate('globalThis.__codexModsSidebarTime.status()')).badges, 3); }
     finally { client.close(); }
     const disableChild = spawn(process.execPath, [cli, 'disable', 'sidebar-time'], { env: environment });
     let disableOutput=''; disableChild.stdout.on('data', data => { disableOutput += data; }); disableChild.stderr.on('data', data => { disableOutput += data; });
@@ -194,9 +194,9 @@ test('real CLI + CDP reinject on reload and disable removes future registrations
 
 test('a crashed watcher can be cleaned up without leaving reload injection behind', async () => {
   await go();
-  const directory = await mkdtemp(join(tmpdir(), 'codex-plugins-crash-'));
+  const directory = await mkdtemp(join(tmpdir(), 'codex-mods-crash-'));
   const cli = cliPath;
-  const environment = { ...process.env, CODEX_PLUGINS_STATE_DIR: directory };
+  const environment = { ...process.env, CODEX_MODS_STATE_DIR: directory };
   const child = spawn(process.execPath, [cli, 'enable', 'sidebar-time', '--endpoint', endpoint, '--no-launch', '--fixture'], { env: environment });
   child.stdout.resume(); child.stderr.resume();
   const exited = new Promise(resolve => child.once('exit', resolve));

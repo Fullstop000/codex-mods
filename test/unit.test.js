@@ -46,7 +46,7 @@ test('discovery filters unrelated pages and forged WebSockets', async () => {
 });
 
 test('state writes are atomic and watcher ownership is exclusive', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'codex-plugins-state-'));
+  const directory = await mkdtemp(join(tmpdir(), 'codex-mods-state-'));
   try {
     await writeJSON(directory, 'config.json', { enabled: true });
     assert.equal((await readJSON(directory, 'config.json')).enabled, true);

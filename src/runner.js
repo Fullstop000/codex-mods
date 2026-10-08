@@ -7,7 +7,7 @@ import { ensureEndpoint } from './launcher.js';
 const probeExpression = `(() => ({
   bootstrapAvailable: [globalThis.electronBridge, globalThis.codexBridge, globalThis.electronAPI].some(b => typeof b?.getInitialSidebarBootstrap === 'function'),
   nativeRows: document.querySelectorAll('[data-app-action-sidebar-thread-id]').length,
-  plugin: globalThis.__codexPluginsSidebarTime?.status() ?? null
+  plugin: globalThis.__codexModsSidebarTime?.status() ?? null
 }))()`;
 
 export async function doctor(options) {
@@ -85,7 +85,7 @@ export async function enable(options, log = console.log) {
     residual = old.targets.map(record => ({ ...record, endpoint: record.endpoint || old.endpoint }));
     for (const record of old.targets) {
       try { await stripRegistration(record, old.endpoint); residual = residual.filter(item => item.id !== record.id); }
-      catch { throw new Error('Previous injection cleanup could not be confirmed. Fully quit/reopen the desktop app, then remove stale registrations with codex-plugins disable sidebar-time.'); }
+      catch { throw new Error('Previous injection cleanup could not be confirmed. Fully quit/reopen the desktop app, then remove stale registrations with codex-mods disable sidebar-time.'); }
     }
     await ensureEndpoint(options, log);
     await writeJSON(options.directory, 'config.json', { enabled: true, endpoint: options.endpoint, fixture: options.fixture });

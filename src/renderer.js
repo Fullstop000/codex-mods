@@ -1,7 +1,7 @@
 // This function is serialized and evaluated inside the desktop renderer.
 // Keep it self-contained. It never writes thread names or application data.
 export function sidebarTime(options = {}) {
-  const key = '__codexPluginsSidebarTime';
+  const key = '__codexModsSidebarTime';
   const w = globalThis;
   w[key]?.dispose?.();
   const selector = '[data-app-action-sidebar-thread-id], [data-thread-id], [data-conversation-id], a[href]';
@@ -15,10 +15,10 @@ export function sidebarTime(options = {}) {
   let source = 'none';
   let entries = [];
   const owned = new Set();
-  const className = 'codex-plugins-time-row';
-  const badgeSelector = '[data-codex-plugins-time]';
+  const className = 'codex-mods-time-row';
+  const badgeSelector = '[data-codex-mods-time]';
   const css = document.createElement('style');
-  css.dataset.codexPluginsStyle = 'sidebar-time';
+  css.dataset.codexModsStyle = 'sidebar-time';
   css.textContent = `.${className} > ${badgeSelector} { display:inline-block; flex:0 0 auto; min-width:3.5ch; margin-inline-end:8px; font-size:11px; font-variant-numeric:tabular-nums; line-height:inherit; color:inherit; opacity:.65; pointer-events:none; white-space:nowrap; vertical-align:baseline; }`;
 
   function timestamp(value) {
@@ -120,7 +120,7 @@ export function sidebarTime(options = {}) {
       let badge = [...row.children].find((child) => child.matches(badgeSelector));
       if (!badge) {
         badge = document.createElement('span');
-        badge.dataset.codexPluginsTime = 'sidebar-time';
+        badge.dataset.codexModsTime = 'sidebar-time';
         row.prepend(badge);
       }
       const label = relative(time);
@@ -199,5 +199,5 @@ export function payload(options) {
   return `(${sidebarTime.toString()})(${JSON.stringify(options)})`;
 }
 
-export const cleanupExpression = '(() => { globalThis.__codexPluginsSidebarTime?.dispose(); return { removed: !globalThis.__codexPluginsSidebarTime }; })()';
-export const statusExpression = 'globalThis.__codexPluginsSidebarTime?.status() ?? null';
+export const cleanupExpression = '(() => { globalThis.__codexModsSidebarTime?.dispose(); return { removed: !globalThis.__codexModsSidebarTime }; })()';
+export const statusExpression = 'globalThis.__codexModsSidebarTime?.status() ?? null';

@@ -2,5 +2,5 @@ node_modules/
 *.log
 test-results/
 playwright-report/
-.codex-plugins/
+.codex-mods/
 *.tgz

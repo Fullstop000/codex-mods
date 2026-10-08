@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-export const stateDirectory = () => process.env.CODEX_PLUGINS_STATE_DIR || join(homedir(), '.codex-plugins');
+export const stateDirectory = () => process.env.CODEX_MODS_STATE_DIR || join(homedir(), '.codex-mods');
 
 export function processAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
@@ -33,8 +33,8 @@ export async function lock(directory) {
   catch (error) {
     if (error.code !== 'EEXIST') throw error;
     const previous = await readJSON(directory, 'watcher.lock');
-    if (!Number.isInteger(previous?.pid) || previous.pid <= 0) throw new Error('Invalid watcher lock. Inspect ~/.codex-plugins/watcher.lock before removing it.');
-    if (processAlive(previous.pid)) throw new Error('A watcher is already running. Run codex-plugins disable sidebar-time first, then wait for it to exit.');
+    if (!Number.isInteger(previous?.pid) || previous.pid <= 0) throw new Error('Invalid watcher lock. Inspect ~/.codex-mods/watcher.lock before removing it.');
+    if (processAlive(previous.pid)) throw new Error('A watcher is already running. Run codex-mods disable sidebar-time first, then wait for it to exit.');
     await unlink(filename);
     await writeFile(filename, JSON.stringify({ pid: process.pid, token }), { flag: 'wx', mode: 0o600 });
   }

@@ -6,11 +6,11 @@ import { endpointURL } from './cdp.js';
 import { doctor, enable, disable } from './runner.js';
 import { readJSON, stateDirectory } from './state.js';
 
-const help = `codex-plugins — local runtime extensions for the Codex desktop app
+const help = `codex-mods — local runtime extensions for the Codex desktop app
 
-  codex-plugins doctor [--endpoint http://127.0.0.1:9222]
-  codex-plugins enable sidebar-time [options]
-  codex-plugins disable sidebar-time
+  codex-mods doctor [--endpoint http://127.0.0.1:9222]
+  codex-mods enable sidebar-time [options]
+  codex-mods disable sidebar-time
 
 Options:
   --endpoint URL       Loopback CDP origin (default: http://127.0.0.1:9222)
@@ -71,5 +71,5 @@ const isEntryPoint = () => {
 };
 
 if (isEntryPoint()) {
-  main(process.argv.slice(2)).catch(error => { console.error(`codex-plugins: ${error.message}`); process.exitCode = 1; });
+  main(process.argv.slice(2)).catch(error => { console.error(`codex-mods: ${error.message}`); process.exitCode = 1; });
 }

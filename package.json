@@ -1,10 +1,10 @@
 {
-  "name": "@fullstop000/codex-plugins",
+  "name": "@fullstop000/codex-mods",
   "version": "0.1.0",
   "description": "Local runtime extensions for the official Codex desktop app via loopback CDP.",
   "type": "module",
   "bin": {
-    "codex-plugins": "./src/cli.js"
+    "codex-mods": "./src/cli.js"
   },
   "engines": {
     "node": ">=22.6.0"
@@ -12,7 +12,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Fullstop000/codex-plugins.git"
+    "url": "https://github.com/Fullstop000/codex-mods.git"
   },
   "files": [
     "src",
