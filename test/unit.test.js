@@ -30,6 +30,19 @@ test('launcher never adds sandbox, signing, or profile overrides', () => {
   assert.deepEqual(launchArguments('http://127.0.0.1:9222'), ['--remote-debugging-address=127.0.0.1', '--remote-debugging-port=9222']);
 });
 
+test('restart is explicit and only valid when enable can launch the desktop app', () => {
+  assert.equal(argumentsFor(['enable', 'sidebar-time']).restart, false);
+  const options = argumentsFor(['enable', 'sidebar-time', '--restart', '--app', '/Applications/Codex.app/Contents/MacOS/Codex']);
+  assert.equal(options.restart, true);
+  assert.equal(options.app, '/Applications/Codex.app/Contents/MacOS/Codex');
+  for (const args of [['doctor', '--restart'], ['disable', 'sidebar-time', '--restart']]) {
+    assert.throws(() => argumentsFor(args), /only supported by enable/);
+  }
+  for (const flag of ['--no-launch', '--fixture']) {
+    assert.throws(() => argumentsFor(['enable', 'sidebar-time', '--restart', flag]), /cannot be combined/);
+  }
+});
+
 test('discovery filters unrelated pages and forged WebSockets', async () => {
   const server = createServer((request, response) => {
     response.setHeader('content-type', 'application/json');

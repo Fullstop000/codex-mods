@@ -15,11 +15,13 @@ codex-mods --help
 
 ## Use
 
-Fully quit the Codex desktop app before enabling the mod.
+On macOS and Windows, quit and reopen the app with debugging enabled:
 
 ```bash
-codex-mods enable sidebar-time
+codex-mods enable sidebar-time --restart
 ```
+
+Save active work before using `--restart`. Without it, the command connects to CDP or opens the app.
 
 Keep this terminal open while the mod runs. Press Ctrl+C to remove the injected mod.
 

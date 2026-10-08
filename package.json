@@ -20,9 +20,9 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/unit.test.js",
+    "test": "node --test test/unit.test.js test/launcher.test.js test/mac-restart.test.js",
     "test:browser": "node --test test/browser.test.js",
-    "check": "node --check src/cli.js && node --check src/renderer.js && node --check src/runner.js"
+    "check": "node --check src/cli.js && node --check src/launcher.js && node --check src/renderer.js && node --check src/runner.js"
   },
   "devDependencies": {
     "playwright": "1.58.2"

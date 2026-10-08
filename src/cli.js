@@ -15,6 +15,7 @@ const help = `codex-mods — local runtime extensions for the Codex desktop app
 Options:
   --endpoint URL       Loopback CDP origin (default: http://127.0.0.1:9222)
   --app PATH           Desktop app executable; auto-discovered on macOS/Windows
+  --restart            Quit and reopen the selected app (macOS/Windows)
   --no-launch          Connect only; do not launch the desktop app
   --time-field FIELD   recency (default, fallback updated), updated, or created
   --threads-file PATH  Optional local JSON metadata snapshot for an adapter
@@ -22,7 +23,7 @@ Options:
   --refresh-ms MS      Metadata/clock refresh interval (default: 30000)
 
 Node >=22.6 is required. Enable runs in the foreground and reinjects on reload.
-Fully quit an ordinary desktop instance before the first CDP launch.
+Use --restart to reopen a running desktop app with CDP enabled.
 No installation files, account settings, or thread names are changed.
 `;
 
@@ -30,7 +31,7 @@ export function argumentsFor(args) {
   const parsed = parseArgs({ args, allowPositionals: true, options: {
     help: { type: 'boolean', short: 'h' },
     endpoint: { type: 'string' }, app: { type: 'string' },
-    'no-launch': { type: 'boolean' }, 'time-field': { type: 'string' },
+    restart: { type: 'boolean' }, 'no-launch': { type: 'boolean' }, 'time-field': { type: 'string' },
     'threads-file': { type: 'string' }, 'row-selector': { type: 'string' },
     'refresh-ms': { type: 'string' }, fixture: { type: 'boolean' },
   } });
@@ -39,13 +40,17 @@ export function argumentsFor(args) {
   if (parsed.values.help || !command) return { help: true };
   if (!['enable', 'disable', 'doctor'].includes(command)) throw new Error('Unknown command. Use doctor, enable, or disable.');
   if (command === 'doctor' ? plugin != null : plugin !== 'sidebar-time') throw new Error('The available extension is sidebar-time.');
+  if (parsed.values.restart) {
+    if (command !== 'enable') throw new Error('--restart is only supported by enable.');
+    if (parsed.values['no-launch'] || parsed.values.fixture) throw new Error('--restart cannot be combined with --no-launch or --fixture.');
+  }
   const timeField = parsed.values['time-field'] || 'recency';
   if (!['recency', 'updated', 'created'].includes(timeField)) throw new Error('--time-field must be recency, updated, or created.');
   const refreshMs = Number(parsed.values['refresh-ms'] || 30000);
   if (!Number.isInteger(refreshMs) || refreshMs < 1000 || refreshMs > 3600000) throw new Error('--refresh-ms must be 1000–3600000.');
   const endpoint = parsed.values.endpoint || 'http://127.0.0.1:9222';
   endpointURL(endpoint);
-  return { command, endpoint, endpointExplicit: !!parsed.values.endpoint, directory: stateDirectory(), app: parsed.values.app, noLaunch: !!parsed.values['no-launch'], timeField, rowSelector: parsed.values['row-selector'], refreshMs, threadsFile: parsed.values['threads-file'], fixture: !!parsed.values.fixture };
+  return { command, endpoint, endpointExplicit: !!parsed.values.endpoint, directory: stateDirectory(), app: parsed.values.app, restart: !!parsed.values.restart, noLaunch: !!parsed.values['no-launch'], timeField, rowSelector: parsed.values['row-selector'], refreshMs, threadsFile: parsed.values['threads-file'], fixture: !!parsed.values.fixture };
 }
 
 export async function main(args) {

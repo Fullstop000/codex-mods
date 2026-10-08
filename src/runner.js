@@ -64,7 +64,8 @@ export async function disable(options) {
 export async function enable(options, log = console.log) {
   const unlock = await lock(options.directory);
   let stopping = false;
-  const stop = () => { stopping = true; };
+  const controller = new AbortController();
+  const stop = () => { stopping = true; controller.abort(); };
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
   const active = new Map();
@@ -87,7 +88,7 @@ export async function enable(options, log = console.log) {
       try { await stripRegistration(record, old.endpoint); residual = residual.filter(item => item.id !== record.id); }
       catch { throw new Error('Previous injection cleanup could not be confirmed. Fully quit/reopen the desktop app, then remove stale registrations with codex-mods disable sidebar-time.'); }
     }
-    await ensureEndpoint(options, log);
+    await ensureEndpoint({ ...options, signal: controller.signal }, log);
     await writeJSON(options.directory, 'config.json', { enabled: true, endpoint: options.endpoint, fixture: options.fixture });
     const source = payload(rendererOptions);
     log('Watching Codex desktop windows. Keep this command running; Ctrl+C removes the injection.');
@@ -141,7 +142,7 @@ export async function enable(options, log = console.log) {
       }
       if (!stopping) await new Promise(resolve => setTimeout(resolve, 1000));
     }
-  } catch (error) { mainError = error; }
+  } catch (error) { if (!stopping || error.name !== 'AbortError') mainError = error; }
   finally {
     process.removeListener('SIGINT', stop);
     process.removeListener('SIGTERM', stop);
