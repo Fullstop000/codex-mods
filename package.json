@@ -4,15 +4,19 @@
   "description": "Local runtime extensions for the official Codex desktop app via loopback CDP.",
   "type": "module",
   "bin": {
-    "codex-mods": "./src/cli.js"
+    "codex-mods": "src/cli.js"
   },
   "engines": {
     "node": ">=22.6.0"
   },
   "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Fullstop000/codex-mods.git"
+    "url": "git+https://github.com/Fullstop000/codex-mods.git"
   },
   "files": [
     "src",
@@ -22,6 +26,7 @@
   "scripts": {
     "test": "node --test test/unit.test.js test/launcher.test.js test/mac-restart.test.js",
     "test:browser": "node --test test/browser.test.js",
+    "prepublishOnly": "npm run check && npm test",
     "check": "node --check src/cli.js && node --check src/launcher.js && node --check src/renderer.js && node --check src/runner.js"
   },
   "devDependencies": {
