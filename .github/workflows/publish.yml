@@ -6,14 +6,11 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: npm-publish-${{ github.ref }}
+  group: publish-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  npm:
+  package:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -34,4 +31,43 @@ jobs:
       - run: npm run check
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
-      - run: npm publish --ignore-scripts --provenance
+      - run: npm pack --ignore-scripts
+      - uses: actions/upload-artifact@v7
+        with:
+          name: npm-package
+          path: codex-mods-*.tgz
+          if-no-files-found: error
+
+  npm:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: npm-package
+      - run: npm publish ./codex-mods-*.tgz --ignore-scripts --provenance
+
+  github:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: npm-package
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" ./codex-mods-*.tgz --verify-tag --generate-notes

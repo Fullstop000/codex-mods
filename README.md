@@ -37,6 +37,13 @@ See `codex-mods --help` for available options.
 
 Run `npm login`, then `npm publish`. If using staged publishing, approve the release in npm's Staged Packages tab.
 
-For later releases, configure an [npm trusted publisher](https://docs.npmjs.com/trusted-publishers/) for `Fullstop000/codex-mods`, workflow `publish.yml`, with direct publishing allowed. Push a `v<VERSION>` tag matching `package.json` to test and publish automatically.
+Push a `v<VERSION>` tag matching `package.json` to run tests, publish to npm, and create a GitHub Release with generated notes and an installable `.tgz` package.
+
+For npm automation, configure an [npm trusted publisher](https://docs.npmjs.com/trusted-publishers/) for `Fullstop000/codex-mods`, workflow `publish.yml`, with direct publishing allowed.
+
+```bash
+npm version patch
+git push origin main --follow-tags
+```
 
 Licensed under the [Apache License 2.0](LICENSE).
