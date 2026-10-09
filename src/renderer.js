@@ -25,9 +25,10 @@ export function sidebarTime(options = {}) {
   const css = document.createElement('style');
   css.dataset.codexModsStyle = 'sidebar-time';
   css.textContent = `
-    .${className} > ${badgeSelector}, .${className} > ${sizeSelector} { display:inline-block; flex:0 0 auto; min-width:3.5ch; margin-inline-end:8px; font-size:11px; font-variant-numeric:tabular-nums; line-height:inherit; color:inherit; white-space:nowrap; vertical-align:baseline; }
-    .${className} > ${badgeSelector} { pointer-events:none; }
-    .${className} > ${sizeSelector} { margin-inline-start:auto; min-width:7.5ch; text-align:end; }
+    .${className} ${badgeSelector}, .${className} ${sizeSelector} { display:inline-block; flex:0 0 auto; min-width:3.5ch; margin-inline-end:8px; font-size:11px; font-variant-numeric:tabular-nums; line-height:inherit; color:inherit; white-space:nowrap; vertical-align:baseline; }
+    .${className} ${badgeSelector} { pointer-events:none; }
+    .${className} ${sizeSelector} { margin-inline-start:auto; min-width:7.5ch; text-align:end; }
+    .${className}:is(:hover, :focus-within, :has([aria-expanded="true"])) ${sizeSelector}[data-codex-mods-hover-actions] { visibility:hidden; }
     .${className}[data-codex-mods-fill] { background-image:linear-gradient(90deg, color-mix(in srgb, currentColor 7%, transparent), color-mix(in srgb, currentColor 3%, transparent)); background-size:var(--codex-mods-fill) 100%; background-repeat:no-repeat; }
     @media (forced-colors: active) { .${className}[data-codex-mods-fill] { background-image:none; } }
   `;
@@ -49,6 +50,13 @@ export function sidebarTime(options = {}) {
     return timestamp(thread.recencyAt ?? thread.recency_at) ?? timestamp(thread.updatedAt ?? thread.updated_at);
   }
 
+  function supportedKind(kind, fallback) {
+    if (kind == null || kind === '') return fallback;
+    if (kind === 'local') return 'local';
+    if (kind === 'cloud' || kind === 'hosted' || kind === 'remote') return 'hosted';
+    return null;
+  }
+
   function collect(value) {
     const found = [];
     const candidates = [value?.catalogSnapshot?.entries, value?.entries, value?.threads, value?.data, Array.isArray(value) ? value : null];
@@ -60,7 +68,8 @@ export function sidebarTime(options = {}) {
         const time = thread && fieldTime(thread);
         if (typeof id !== 'string' || !id) continue;
         const host = entry.hostId ?? thread.hostId ?? null;
-        found.push({ id, host: typeof host === 'string' ? host : null, time });
+        const kind = supportedKind(entry.kind, entry.task && !entry.thread ? 'hosted' : 'local');
+        found.push({ id, host: typeof host === 'string' ? host : null, kind, time });
       }
     }
     return found;
@@ -68,23 +77,48 @@ export function sidebarTime(options = {}) {
 
   function rowIdentity(row) {
     const qualified = row.getAttribute('data-app-action-sidebar-thread-id');
-    if (qualified) return { qualified };
+    const nativeHost = row.getAttribute('data-app-action-sidebar-thread-host-id');
+    const host = (nativeHost ?? row.getAttribute('data-host-id')) || null;
+    const nativeKind = row.getAttribute('data-app-action-sidebar-thread-kind');
+    const kind = supportedKind(nativeKind, 'local');
+    if (!kind) return null;
+    if (qualified) {
+      if (qualified.startsWith('hosted:') || (qualified.startsWith('remote:') && nativeKind !== 'local')) {
+        if (nativeKind && kind !== 'hosted') return null;
+        return { id: qualified.slice(7), host: null, kind: 'hosted' };
+      }
+      // The native sidebar uses local:<threadId>, with host in its own attribute.
+      if (qualified.startsWith('local:') && qualified.indexOf(':', 6) === -1) {
+        if (kind !== 'local' || !qualified.slice(6)) return null;
+        return { id: qualified.slice(6), host: nativeHost === '' ? null : host ?? 'local', kind, unknownHost:nativeHost === '' };
+      }
+      // Also accept qualified adapters; host IDs may contain colons.
+      const key = qualified.startsWith('local:') && qualified.indexOf(':', 6) !== -1 ? qualified.slice(6) : qualified;
+      const split = key.lastIndexOf(':');
+      if (split !== -1) {
+        const keyHost = key.slice(0, split);
+        const id = key.slice(split + 1);
+        if (!id || !keyHost || (host != null && host !== keyHost) || kind !== 'local') return null;
+        return { id, host: keyHost, kind: 'local' };
+      }
+      return { id: qualified, host, kind, unknownHost:nativeHost === '' };
+    }
     const id = row.getAttribute('data-thread-id') ?? row.getAttribute('data-conversation-id');
-    if (id) return { id, host: row.getAttribute('data-host-id') };
+    if (id) return { id, host, kind };
     if (row.tagName === 'A') {
       try {
         const path = new URL(row.getAttribute('href'), location.href).pathname;
         const match = path.match(/^\/(?:threads?|c)\/([^/]+)\/?$/);
-        if (match) return { id: decodeURIComponent(match[1]), host: row.getAttribute('data-host-id') };
+        if (match) return { id: decodeURIComponent(match[1]), host, kind };
       } catch { /* Unsupported href: do not guess from text. */ }
     }
     return null;
   }
 
   function findTime(identity, row) {
-    const matches = entries.filter((entry) => entry.time != null && (identity.qualified
-      ? `${entry.host ?? 'local'}:${entry.id}` === identity.qualified || entry.id === identity.qualified
-      : entry.id === identity.id && (identity.host == null || entry.host === identity.host)));
+    if (identity.kind === 'local' && identity.host == null && entries.some(entry => entry.id === identity.id && entry.kind == null)) return null;
+    const matches = entries.filter((entry) => entry.time != null && entry.id === identity.id && entry.kind === identity.kind &&
+      (identity.host == null || (entry.host ?? 'local') === identity.host));
     // Conflicting hosts/timestamps must not be matched by title or row order.
     const unique = new Set(matches.map((entry) => `${entry.host}:${entry.time}`));
     if (unique.size === 1) return matches[0].time;
@@ -107,19 +141,10 @@ export function sidebarTime(options = {}) {
   }
 
   function findSize(identity) {
-    if (!options.showSize) return null;
-    let id;
-    if (identity.qualified) {
-      // A local UUID must never be applied to a different host's session.
-      if (!identity.qualified.startsWith('local:')) return null;
-      id = identity.qualified.slice(6);
-    } else {
-      if (identity.host && identity.host !== 'local') return null;
-      const matches = entries.filter(entry => entry.id === identity.id);
-      if (!identity.host && matches.some(entry => entry.host && entry.host !== 'local')) return null;
-      id = identity.id;
-    }
-    const bytes = sessionSizes[id?.toLowerCase()];
+    if (!options.showSize || identity.kind !== 'local' || identity.unknownHost || (identity.host && identity.host !== 'local')) return null;
+    const matches = entries.filter(entry => entry.id === identity.id);
+    if (!identity.host && matches.some(entry => entry.kind !== 'local' || (entry.host && entry.host !== 'local'))) return null;
+    const bytes = sessionSizes[identity.id?.toLowerCase()];
     return Number.isSafeInteger(bytes) && bytes >= 0 ? bytes : null;
   }
 
@@ -141,7 +166,7 @@ export function sidebarTime(options = {}) {
   }
 
   function remove(row) {
-    for (const node of [...row.children]) if (node.matches(ownedBadgeSelector)) node.remove();
+    for (const node of row.querySelectorAll(ownedBadgeSelector)) node.remove();
     row.classList.remove(className);
     row.removeAttribute('data-codex-mods-fill');
     row.style.removeProperty('--codex-mods-fill');
@@ -157,22 +182,26 @@ export function sidebarTime(options = {}) {
       const time = options.showTime === false ? null : findTime(identity, row);
       const bytes = findSize(identity);
       if (time == null && bytes == null) { if (owned.has(row)) remove(row); continue; }
+      // Native rows group title, status, and actions in nested flex containers.
+      const title = row.querySelector('[data-thread-title-trigger]');
+      const container = title?.parentElement ?? row;
+      if (title && getComputedStyle(container).display !== 'flex') { if (owned.has(row)) remove(row); continue; }
       active.add(row);
-      let badge = [...row.children].find((child) => child.matches(badgeSelector));
+      let badge = row.querySelector(badgeSelector);
       if (time == null) { badge?.remove(); }
       else {
         if (!badge) {
           badge = document.createElement('span');
           badge.dataset.codexModsTime = 'sidebar-time';
-          row.prepend(badge);
         }
+        if (badge.parentElement !== container) container.insertBefore(badge, title ?? container.firstChild);
         const label = relative(time);
         if (badge.textContent !== label) badge.textContent = label;
         const exact = new Date(time).toLocaleString();
         badge.title = exact;
         badge.setAttribute('aria-label', `${options.timeField === 'created' ? 'Created' : options.timeField === 'updated' ? 'Updated' : 'Last activity'}: ${exact}`);
       }
-      let sizeBadge = [...row.children].find(child => child.matches(sizeSelector));
+      let sizeBadge = row.querySelector(sizeSelector);
       if (bytes == null) {
         sizeBadge?.remove();
         row.removeAttribute('data-codex-mods-fill');
@@ -182,11 +211,16 @@ export function sidebarTime(options = {}) {
         if (!sizeBadge) {
           sizeBadge = document.createElement('span');
           sizeBadge.dataset.codexModsSize = 'sidebar-size';
-          // Leave native trailing controls at the end; retain the title's space.
-          const trailing = row.lastElementChild;
-          if (trailing && trailing !== badge && row.children.length > (badge ? 2 : 1)) row.insertBefore(sizeBadge, trailing);
-          else row.append(sizeBadge);
         }
+        if (sizeBadge.parentElement !== container) {
+          if (title) container.insertBefore(sizeBadge, title.nextSibling);
+          else {
+            const trailing = container.lastElementChild;
+            if (trailing && trailing !== badge && container.children.length > (badge ? 2 : 1)) container.insertBefore(sizeBadge, trailing);
+            else container.append(sizeBadge);
+          }
+        }
+        sizeBadge.toggleAttribute('data-codex-mods-hover-actions', !!row.querySelector('[data-hover-card-open-immediately] button, [data-hover-card-open-immediately] [role="button"]'));
         const label = fileSize(bytes);
         if (sizeBadge.textContent !== label) sizeBadge.textContent = label;
         const description = `Local session records: ${bytes.toLocaleString()} bytes. File size; excludes attachments and workspace files.`;
@@ -242,7 +276,7 @@ export function sidebarTime(options = {}) {
   const observer = new MutationObserver((mutations) => {
     if (mutations.some((mutation) => !(mutation.target.nodeType === 1 ? mutation.target : mutation.target.parentElement)?.closest?.(ownedBadgeSelector))) schedule();
   });
-  if (document.documentElement) observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'data-app-action-sidebar-thread-id', 'data-thread-id', 'data-conversation-id', 'data-host-id', 'data-updated-at', 'data-recency-at', 'data-created-at'] });
+  if (document.documentElement) observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'data-app-action-sidebar-thread-id', 'data-app-action-sidebar-thread-host-id', 'data-app-action-sidebar-thread-kind', 'data-thread-id', 'data-conversation-id', 'data-host-id', 'data-updated-at', 'data-recency-at', 'data-created-at'] });
   const timer = setInterval(refresh, options.refreshMs || 30000);
   const status = () => ({
     installed: !disposed,

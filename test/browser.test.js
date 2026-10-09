@@ -175,6 +175,83 @@ test('host-qualified IDs work; ambiguous unqualified IDs are skipped', async () 
   assert.equal(await page.locator('[data-thread-id="same"] [data-codex-mods-time]').count(), 0);
 });
 
+test('qualified and hosted adapter keys preserve nested title and action containers', async () => {
+  await go();
+  await page.evaluate(() => {
+    const aside = document.querySelector('aside');
+    const keys = ['local:local:same', 'local:remote-ssh-discovered:10.37.90.39:same', 'hosted:same'];
+    aside.innerHTML = keys.map((key, index) => `<div role="button" tabindex="0" data-app-action-sidebar-thread-id="${key}" data-app-action-sidebar-thread-kind="${index === 2 ? 'cloud' : 'local'}" data-app-action-sidebar-thread-host-id="${index === 0 ? 'local' : index === 1 ? 'remote-ssh-discovered:10.37.90.39' : ''}"><div style="display:flex;width:100%"><div style="display:flex;flex:1;min-width:0"><div data-thread-title-trigger style="flex:1;min-width:0"><span data-thread-title>Native title ${index}</span></div><span class="status">○</span></div></div><div class="contents" data-hover-card-open-immediately><button aria-haspopup="menu">Actions</button></div></div>`).join('');
+    const now = Math.floor(Date.now()/1000);
+    window.snapshot = {catalogSnapshot:{entries:[
+      {kind:'local',hostId:'local',thread:{id:'same',recencyAt:now-3600}},
+      {kind:'local',hostId:'remote-ssh-discovered:10.37.90.39',thread:{id:'same',recencyAt:now-7200}},
+      {kind:'cloud',task:{id:'same',recencyAt:now-10800}},
+    ]}};
+  });
+  const state = await install({showSize:true,sessionSizes:{same:4096}});
+  assert.equal(state.badges, 3);
+  assert.equal(state.sizeBadges, 1);
+  assert.deepEqual(await badges(), ['1h', '2h', '3h']);
+  const local = page.locator('[data-app-action-sidebar-thread-id="local:local:same"]');
+  assert.equal(await local.locator(':scope > [data-codex-mods-time], :scope > [data-codex-mods-size]').count(), 0);
+  assert.equal(await local.locator('[data-thread-title-trigger]').textContent(), 'Native title 0');
+  assert.equal(await local.locator('[data-codex-mods-size]').evaluate(node => node.parentElement === node.closest('[data-app-action-sidebar-thread-id]').querySelector('[data-thread-title-trigger]').parentElement), true);
+  assert.equal(await local.locator('[data-codex-mods-size]').getAttribute('data-codex-mods-hover-actions'), '');
+  await local.evaluate(node => node.setAttribute('data-app-action-sidebar-thread-host-id', 'other'));
+  await waitFor(async () => await local.locator('[data-codex-mods-time], [data-codex-mods-size]').count() === 0, 'Conflicting native identity retained badges');
+  await page.evaluate(cleanupExpression);
+  assert.equal(await page.locator('[data-codex-mods-time], [data-codex-mods-size], [data-codex-mods-fill], .codex-mods-time-row').count(), 0);
+  assert.equal(await page.locator('[data-thread-title-trigger]').count(), 3);
+  assert.equal(await page.locator('[aria-haspopup="menu"]').count(), 3);
+});
+
+test('native sidebar separates the host attribute from local and remote task keys', async () => {
+  await go();
+  await page.evaluate(() => {
+    document.querySelector('aside').innerHTML = '<button data-app-action-sidebar-thread-id="local:same" data-app-action-sidebar-thread-host-id="local" data-app-action-sidebar-thread-kind="local">Local</button><button data-app-action-sidebar-thread-id="local:same" data-app-action-sidebar-thread-host-id="remote-ssh-discovered:10.37.90.39" data-app-action-sidebar-thread-kind="local">SSH</button><button data-app-action-sidebar-thread-id="remote:same" data-app-action-sidebar-thread-host-id="" data-app-action-sidebar-thread-kind="remote">Cloud</button><button data-app-action-sidebar-thread-id="local:same" data-app-action-sidebar-thread-host-id="" data-app-action-sidebar-thread-kind="local">Unknown host</button>';
+    const now = Math.floor(Date.now()/1000);
+    window.snapshot={catalogSnapshot:{entries:[
+      {kind:'local',hostId:'local',thread:{id:'same',recencyAt:now-3600}},
+      {kind:'local',hostId:'remote-ssh-discovered:10.37.90.39',thread:{id:'same',recencyAt:now-7200}},
+      {kind:'remote',task:{id:'same',recencyAt:now-10800}},
+    ]}};
+  });
+  const state = await install({showSize:true,sessionSizes:{same:4096}});
+  assert.equal(state.badges,3);
+  assert.equal(state.sizeBadges,1);
+  assert.deepEqual(await badges(),['1h','2h','3h']);
+  const local=page.locator('[data-app-action-sidebar-thread-host-id="local"]');
+  assert.equal(await local.locator('[data-codex-mods-size]').textContent(),'4.0 KiB');
+  await local.evaluate(node=>node.setAttribute('data-app-action-sidebar-thread-host-id','remote-ssh-discovered:10.37.90.39'));
+  await waitFor(async()=>await local.count()===0 && await page.locator('[data-codex-mods-size]').count()===0,'Host change retained a local disk size');
+  assert.deepEqual(await badges(),['2h','2h','3h']);
+});
+
+test('unknown nested title layouts skip injection without altering the row', async () => {
+  await go();
+  await row('a').evaluate(row => {row.innerHTML = '<div style="display:block"><div data-thread-title-trigger>Unsupported layout</div></div>';});
+  await install({showSize:true,sessionSizes:{a:4096}});
+  assert.equal(await row('a').locator('[data-codex-mods-time], [data-codex-mods-size]').count(), 0);
+  assert.equal(await row('a').getAttribute('data-codex-mods-fill'), null);
+});
+
+test('unknown native kinds cannot inherit a same-ID local session size or timestamp', async () => {
+  await go();
+  await page.evaluate(() => {
+    document.querySelector('aside').innerHTML = '<button data-app-action-sidebar-thread-id="local:local:same" data-app-action-sidebar-thread-kind="local">Local</button><button data-app-action-sidebar-thread-id="local:local:same" data-app-action-sidebar-thread-kind="future-kind">Unknown</button><button data-thread-id="same">Legacy</button>';
+    const now=Math.floor(Date.now()/1000);
+    window.snapshot={catalogSnapshot:{entries:[
+      {kind:'local',hostId:'local',task:{id:'same',recencyAt:now-3600}},
+      {kind:'future-kind',hostId:'local',thread:{id:'same',recencyAt:now-7200}},
+    ]}};
+  });
+  const state = await install({showSize:true,sessionSizes:{same:4096}});
+  assert.equal(state.badges,1);
+  assert.equal(state.sizeBadges,1);
+  assert.deepEqual(await badges(),['1h']);
+  assert.equal(await page.locator('[data-app-action-sidebar-thread-kind="future-kind"] [data-codex-mods-time], [data-app-action-sidebar-thread-kind="future-kind"] [data-codex-mods-size]').count(),0);
+});
+
 test('late bootstrap availability and DOM metadata are handled without guessing', async () => {
   await go();
   await page.evaluate(() => { delete window.electronBridge; document.querySelector('[data-app-action-sidebar-thread-id="local:a"]').setAttribute('data-updated-at', String(Math.floor(Date.now()/1000)-600)); });

@@ -39,7 +39,17 @@ Disabling the mod does not close the app's debugging port. To close that port, q
 
 ## Compatibility
 
-Codex Mods is unofficial and experimental. It has been tested with Chromium fixtures; compatibility with the official Codex desktop app is unverified.
+Codex Mods is unofficial and experimental. Sidebar components, themes and preload from Codex 26.1002.52244 pass isolated Chromium replay checks. Full desktop/backend integration remains unverified; time metadata comes from the app's initial sidebar snapshot.
+
+From a source checkout, verify the installed app without restarting it or accessing your profile:
+
+```bash
+npm ci
+npx playwright install chromium
+npm run test:installed
+```
+
+The replay reads installed assets, uses synthetic data and blocks external requests. Screenshots and results are saved in `test-results/installed/`. Other app builds require an updated replay adapter.
 
 See `codex-mods --help` for available options.
 
