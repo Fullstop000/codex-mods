@@ -1,5 +1,5 @@
 {
-  "name": "@fullstop000/codex-mods",
+  "name": "codex-mods",
   "version": "0.1.0",
   "description": "Local runtime extensions for the official Codex desktop app via loopback CDP.",
   "type": "module",

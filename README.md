@@ -39,7 +39,7 @@ See `codex-mods --help` for available options.
 
 ## Publish
 
-For the first release, run `npm login`, then `npm publish`. After publication, users can run `npm install --global @fullstop000/codex-mods`.
+For the first release, run `npm login`, then `npm publish`. If using staged publishing, approve the release in npm's Staged Packages tab. After publication, users can run `npm install --global codex-mods`.
 
 For later releases, configure an [npm trusted publisher](https://docs.npmjs.com/trusted-publishers/) for `Fullstop000/codex-mods`, workflow `publish.yml`, with direct publishing allowed. Push a `v<VERSION>` tag matching `package.json` to test and publish automatically.
 
