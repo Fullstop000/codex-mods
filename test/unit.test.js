@@ -26,6 +26,19 @@ test('CLI validates commands, plugin IDs and refresh settings', () => {
   for (const args of [['enable', 'other'], ['doctor', 'sidebar-time'], ['enable', 'sidebar-time', '--refresh-ms', '0'], ['enable', 'sidebar-time', '--time-field', 'banana'], ['enable', 'sidebar-time', '--endpoint', 'http://evil.example:9222']]) assert.throws(() => argumentsFor(args));
 });
 
+test('session size can run alone or alongside time, with a custom local Codex home', () => {
+  const size = argumentsFor(['enable', 'sidebar-size', '--codex-home', '/tmp/codex-data']);
+  assert.equal(size.showSize, true);
+  assert.equal(size.showTime, false);
+  assert.equal(size.codexHome, '/tmp/codex-data');
+  const combined = argumentsFor(['enable', 'sidebar-time', '--show-size']);
+  assert.equal(combined.showSize, true);
+  assert.equal(combined.showTime, true);
+  assert.equal(argumentsFor(['enable', 'sidebar-time']).showSize, false);
+  assert.equal(argumentsFor(['disable', 'sidebar-size']).command, 'disable');
+  assert.throws(() => argumentsFor(['doctor', '--show-size']), /only supported by enable/);
+});
+
 test('launcher never adds sandbox, signing, or profile overrides', () => {
   assert.deepEqual(launchArguments('http://127.0.0.1:9222'), ['--remote-debugging-address=127.0.0.1', '--remote-debugging-port=9222']);
 });

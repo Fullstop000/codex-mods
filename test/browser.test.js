@@ -1,7 +1,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -82,6 +82,67 @@ test('rendered badges use recency, preserve titles/actions, and stay in the side
   assert.ok(await row('b').locator('[data-codex-mods-time]').getAttribute('title'));
   assert.match(await row('b').locator('[data-codex-mods-time]').getAttribute('aria-label'), /Last activity/);
   await page.screenshot({ path: join(tmpdir(), 'codex-mods-sidebar-desktop.png') });
+});
+
+test('session sizes use subtle background fills and preserve titles, status, and click behavior', async () => {
+  await go();
+  const state = await install({ showSize: true, sessionSizes: { a: 2 * 1024 ** 2, b: 128 * 1024 ** 2, c: 0 } });
+  assert.equal(state.badges, 3);
+  assert.equal(state.sizeBadges, 3);
+  assert.deepEqual(await page.locator('[data-codex-mods-size]').allTextContents(), ['2.0 MiB', '128 MiB', '0 B']);
+  const fills = await page.locator('[data-codex-mods-fill]').evaluateAll(rows => rows.map(row => parseFloat(row.style.getPropertyValue('--codex-mods-fill'))));
+  assert.ok(fills[1] > fills[0] && fills[0] > fills[2]);
+  assert.match(await row('a').locator('[data-codex-mods-size]').getAttribute('title'), /2,097,152 bytes/);
+  await row('b').locator('[data-codex-mods-size]').click();
+  assert.equal(await page.locator('#clicked').textContent(), 'Review workflow safeguards');
+  for (const width of [1100, 390]) {
+    await page.setViewportSize({width, height: 650});
+    for (const id of ['a', 'b', 'c']) {
+      const parent = await row(id).boundingBox();
+      const size = await row(id).locator('[data-codex-mods-size]').boundingBox();
+      const status = await row(id).locator('.status').boundingBox();
+      assert.ok(size.x >= parent.x && size.x + size.width < status.x);
+      assert.ok(status.x + status.width <= parent.x + parent.width);
+    }
+  }
+  await page.mouse.move(380,300);
+  await page.locator('aside').screenshot({path: join(tmpdir(), 'codex-mods-size-light.png')});
+  await page.addStyleTag({content:'body{background:#202123;color:#dedee2}aside{border-color:#393a3c}button:hover{background:#303134}'});
+  await page.locator('aside').screenshot({path: join(tmpdir(), 'codex-mods-size-dark.png')});
+  await page.setViewportSize({width:1100,height:650});
+  await page.evaluate(cleanupExpression);
+  assert.equal(await page.locator('[data-codex-mods-size], [data-codex-mods-fill], [data-codex-mods-style]').count(), 0);
+  assert.equal(await row('a').evaluate(row => row.style.getPropertyValue('--codex-mods-fill')), '');
+});
+
+test('size-only mode works without timestamps and omits remote, ambiguous, and missing records', async () => {
+  await go();
+  await page.evaluate(() => {
+    document.querySelector('aside').innerHTML = '<button data-app-action-sidebar-thread-id="local:a">Local</button><button data-app-action-sidebar-thread-id="ssh:a">Remote</button><button data-thread-id="a">Ambiguous</button><button data-app-action-sidebar-thread-id="local:missing">Missing</button>';
+    window.snapshot.catalogSnapshot.entries = [{id:'a',hostId:'local'}, {id:'a',hostId:'ssh'}];
+  });
+  const state = await install({showTime:false,showSize:true,sessionSizes:{a:2048}});
+  assert.equal(state.badges, 0);
+  assert.equal(state.sizeBadges, 1);
+  assert.deepEqual(await page.locator('[data-codex-mods-size]').allTextContents(), ['2.0 KiB']);
+  await page.evaluate(() => {
+    globalThis.__codexModsSidebarTime.setSessionSizes({a:4096},null,1);
+    const row = document.querySelector('[data-app-action-sidebar-thread-id="local:a"]');
+    row.replaceChildren(document.createTextNode('Local'));
+  });
+  await waitFor(async () => (await page.locator('[data-codex-mods-size]').textContent()) === '4.0 KiB', 'Size did not recover after a row replacement');
+  await page.evaluate(() => globalThis.__codexModsSidebarTime.setSessionSizes({},'Record scan incomplete',2));
+  assert.equal(await page.locator('[data-codex-mods-size], [data-codex-mods-fill]').count(), 0);
+  assert.equal(await page.evaluate(() => globalThis.__codexModsSidebarTime.status().warning), 'Record scan incomplete');
+});
+
+test('native background images remain intact while session size values are displayed', async () => {
+  await go();
+  await row('a').evaluate(row => {row.style.backgroundImage = 'linear-gradient(red, blue)';});
+  await install({showSize:true,sessionSizes:{a:4096}});
+  assert.equal(await row('a').locator('[data-codex-mods-size]').count(), 1);
+  assert.equal(await row('a').getAttribute('data-codex-mods-fill'), null);
+  assert.equal(await row('a').evaluate(row => row.style.backgroundImage), 'linear-gradient(red, blue)');
 });
 
 test('React-style row replacement and live metadata updates restore the correct badges', async () => {
@@ -189,6 +250,43 @@ test('real CLI + CDP reinject on reload and disable removes future registrations
   } finally {
     if (child.exitCode === null) { child.kill('SIGTERM'); await exited; }
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('real CLI refreshes disk sizes on file growth, reload, and deletion', async () => {
+  await go();
+  const directory = await mkdtemp(join(tmpdir(), 'codex-mods-size-e2e-'));
+  const home = join(directory, 'codex');
+  const sessionId = '01234567-89ab-cdef-0123-456789abcdef';
+  await mkdir(join(home, 'sessions'), {recursive:true});
+  const record = join(home,'sessions',`rollout-2026-10-09T00-00-${sessionId}.jsonl`);
+  await writeFile(record, 'x'.repeat(2048));
+  const setIdentity = () => row('a').evaluate((row,id) => row.setAttribute('data-app-action-sidebar-thread-id',`local:${id}`),sessionId);
+  await setIdentity();
+  const environment = {...process.env,CODEX_MODS_STATE_DIR:join(directory,'state')};
+  const child = spawn(process.execPath,[cliPath,'enable','sidebar-size','--codex-home',home,'--endpoint',endpoint,'--no-launch','--fixture','--refresh-ms','1000'],{env:environment});
+  let output = '';
+  child.stdout.on('data',data => {output += data;}); child.stderr.on('data',data => {output += data;});
+  const exited = new Promise(resolve => child.once('exit',code => resolve(code)));
+  const size = () => row(sessionId).locator('[data-codex-mods-size]').textContent();
+  try {
+    await waitFor(async () => (await page.locator('[data-codex-mods-size]').count()) === 1,'Size CLI did not inject: '+output);
+    assert.equal(await size(),'2.0 KiB');
+    assert.equal(await page.locator('[data-codex-mods-time]').count(),0);
+    await writeFile(record,'x'.repeat(4096));
+    await waitFor(async () => (await size()) === '4.0 KiB','File growth did not refresh');
+    await page.reload(); await setIdentity();
+    await waitFor(async () => (await size()) === '4.0 KiB','Reload restored stale size data');
+    await rm(record);
+    await waitFor(async () => (await page.locator('[data-codex-mods-size]').count()) === 0,'Deleted record kept a stale size');
+    const clean = spawn(process.execPath,[cliPath,'disable','sidebar-size'],{env:environment});
+    let cleanOutput=''; clean.stdout.on('data',data=>{cleanOutput+=data;}); clean.stderr.on('data',data=>{cleanOutput+=data;});
+    assert.equal(await new Promise(resolve=>clean.once('exit',resolve)),0,cleanOutput);
+    assert.equal(await exited,0,output);
+    assert.equal(await page.locator('[data-codex-mods-size], [data-codex-mods-fill], [data-codex-mods-style]').count(),0);
+  } finally {
+    if(child.exitCode === null && child.signalCode === null){child.kill('SIGTERM');await exited;}
+    await rm(directory,{recursive:true,force:true});
   }
 });
 
