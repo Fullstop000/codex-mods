@@ -1,6 +1,6 @@
 {
   "name": "codex-mods",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local runtime extensions for the official Codex desktop app via loopback CDP.",
   "type": "module",
   "bin": {
