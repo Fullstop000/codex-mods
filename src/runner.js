@@ -4,6 +4,7 @@ import { payload, cleanupExpression, statusExpression } from './renderer.js';
 import { readJSON, writeJSON, lock, processAlive } from './state.js';
 import { ensureEndpoint } from './launcher.js';
 import { readSessionSizes } from './sessions.js';
+import { createSessionActivityReader } from './activity.js';
 
 const probeExpression = `(() => ({
   bootstrapAvailable: [globalThis.electronBridge, globalThis.codexBridge, globalThis.electronAPI].some(b => typeof b?.getInitialSidebarBootstrap === 'function'),
@@ -73,14 +74,18 @@ export async function enable(options, log = console.log) {
   const clients = new Map();
   let residual = [];
   const statusCache = new Map();
-  const rendererOptions = { timeField: options.timeField, rowSelector: options.rowSelector, refreshMs: options.refreshMs, showTime: options.showTime, showSize: options.showSize };
+  const rendererOptions = { timeField: options.timeField, rowSelector: options.rowSelector, refreshMs: options.refreshMs, showTime: options.showTime, showSize: options.showSize, showLegacy: options.showLegacy, locale: options.locale };
+  const readActivity = options.showLegacy ? createSessionActivityReader(options.codexHome) : null;
+  const needsSizes = options.showSize || options.showLegacy;
+  const activityIds = new Map();
+  let activityRevision = 0;
   let sizeRefreshAt = 0;
   let sizeRevision = 0;
   let mainError;
   try {
     if (options.threadsFile) {
       rendererOptions.threads = JSON.parse(await readFile(options.threadsFile, 'utf8'));
-      if (!Array.isArray(rendererOptions.threads) && !rendererOptions.threads?.catalogSnapshot && !rendererOptions.threads?.threads && !rendererOptions.threads?.data) {
+      if (!Array.isArray(rendererOptions.threads) && !rendererOptions.threads?.catalogSnapshot && !rendererOptions.threads?.catalogEntries && !rendererOptions.threads?.threads && !rendererOptions.threads?.data) {
         throw new Error('--threads-file must contain a thread array, thread/list response, or catalog bootstrap.');
       }
     }
@@ -99,7 +104,13 @@ export async function enable(options, log = console.log) {
     const persist = () => writeJSON(options.directory, 'registrations.json', { endpoint: options.endpoint, targets: [...active.values()] });
     while (!stopping && (await readJSON(options.directory, 'config.json', {})).enabled) {
       try {
-        if (options.showSize && (!sizeRefreshAt || Date.now() - sizeRefreshAt >= (options.refreshMs || 30000))) {
+        if (readActivity) {
+          const snapshot = await readActivity([...new Set([...activityIds.values()].flat())]);
+          rendererOptions.lastMessages = snapshot.lastMessages;
+          rendererOptions.activityWarning = snapshot.warning;
+          rendererOptions.activityRevision = ++activityRevision;
+        }
+        if (needsSizes && (!sizeRefreshAt || Date.now() - sizeRefreshAt >= (options.refreshMs || 30000))) {
           const snapshot = await readSessionSizes(options.codexHome);
           rendererOptions.sessionSizes = snapshot.sizes;
           rendererOptions.sizeWarning = snapshot.warning;
@@ -107,9 +118,10 @@ export async function enable(options, log = console.log) {
           sizeRefreshAt = Date.now();
           source = payload(rendererOptions);
         }
+        if (readActivity) source = payload(rendererOptions);
         const list = await targets(options.endpoint, options.fixture);
         const liveIDs = new Set(list.map(item => item.id));
-        for (const [id, client] of clients) if (!liveIDs.has(id)) { client.close(); clients.delete(id); active.delete(id); statusCache.delete(id); }
+        for (const [id, client] of clients) if (!liveIDs.has(id)) { client.close(); clients.delete(id); active.delete(id); statusCache.delete(id); activityIds.delete(id); }
         await persist();
         for (const target of list) {
           let client;
@@ -137,11 +149,15 @@ export async function enable(options, log = console.log) {
               state = await client.evaluate(statusExpression);
               if (!state) state = await client.evaluate(source);
             }
-            if (options.showSize && state?.sizeRevision !== sizeRevision) {
+            if (needsSizes && state?.sizeRevision !== sizeRevision) {
               state = await client.evaluate(`globalThis.__codexModsSidebarTime?.setSessionSizes(${JSON.stringify(rendererOptions.sessionSizes)}, ${JSON.stringify(rendererOptions.sizeWarning)}, ${sizeRevision})`);
             }
-            const summary = state?.badges || state?.sizeBadges
-              ? `${options.plugin || 'sidebar-time'}: ${state.badges || 0} time labels, ${state.sizeBadges || 0} size labels visible.${state.warning ? ` ${state.warning}` : ''}`
+            if (readActivity) {
+              activityIds.set(target.id, state?.localSessionIds || []);
+              if (state?.activityRevision !== activityRevision) state = await client.evaluate(`globalThis.__codexModsSidebarTime?.setSessionActivity(${JSON.stringify(rendererOptions.lastMessages)}, ${JSON.stringify(rendererOptions.activityWarning)}, ${activityRevision})`);
+            }
+            const summary = state?.badges || state?.sizeBadges || state?.legacyBadges
+              ? `${options.plugin || 'sidebar-time'}: ${state.badges || 0} time labels, ${state.legacyBadges || 0} archive suggestions, ${state.sizeBadges || 0} size labels visible.${state.warning ? ` ${state.warning}` : ''}`
               : `${options.plugin || 'sidebar-time'}: waiting for supported thread rows and metadata; no labels verified yet.${state?.warning ? ` ${state.warning}` : ''}`;
             if (statusCache.get(target.id) !== summary) { statusCache.set(target.id, summary); log(summary); }
           } catch (error) {

@@ -1,9 +1,8 @@
 import { lstat, readdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { rolloutIdentity, resolveRolloutId } from './rollouts.js';
 
-const SESSION_ID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const ROLLOUT_FILE = new RegExp(`^rollout-.+-(${SESSION_ID})\\.jsonl$`, 'i');
 const WARNING = 'Some session files could not be inspected; affected sizes were omitted.';
 
 export async function readSessionSizes(codexHome = process.env.CODEX_HOME || join(homedir(), '.codex')) {
@@ -41,12 +40,17 @@ export async function readSessionSizes(codexHome = process.env.CODEX_HOME || joi
       }
       if (!entry.isFile()) continue;
 
-      const match = ROLLOUT_FILE.exec(entry.name);
-      if (!match) continue;
-      const sessionId = match[1].toLowerCase();
+      const candidate = rolloutIdentity(entry.name);
+      if (!candidate) continue;
       try {
         const fileInfo = await lstat(path);
         if (!fileInfo.isFile()) continue;
+        const sessionId = await resolveRolloutId(path, candidate, fileInfo);
+        if (!sessionId) {
+          warning = true;
+          for (const id of candidate.candidates) incompleteSessions.add(id);
+          continue;
+        }
         let seen = seenFilesBySession.get(sessionId);
         if (!seen) seenFilesBySession.set(sessionId, seen = new Set());
         const identity = `${fileInfo.dev}:${fileInfo.ino}`;
@@ -56,7 +60,7 @@ export async function readSessionSizes(codexHome = process.env.CODEX_HOME || joi
       } catch (error) {
         if (error.code !== 'ENOENT') {
           warning = true;
-          incompleteSessions.add(sessionId);
+          for (const id of candidate.candidates) incompleteSessions.add(id);
         }
       }
     }

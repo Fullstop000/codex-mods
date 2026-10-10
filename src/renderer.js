@@ -17,18 +17,46 @@ export function sidebarTime(options = {}) {
   let sessionSizes = options.sessionSizes || {};
   let sizeWarning = options.sizeWarning || null;
   let sizeRevision = options.sizeRevision ?? 0;
+  let lastMessages = options.lastMessages || {};
+  let activityWarning = options.activityWarning || null;
+  let activityRevision = options.activityRevision ?? 0;
   const owned = new Set();
   const className = 'codex-mods-time-row';
   const badgeSelector = '[data-codex-mods-time]';
   const sizeSelector = '[data-codex-mods-size]';
-  const ownedBadgeSelector = `${badgeSelector}, ${sizeSelector}`;
+  const legacySelector = '[data-codex-mods-legacy]';
+  const ownedBadgeSelector = `${badgeSelector}, ${legacySelector}, ${sizeSelector}`;
+  const language = options.locale || document.documentElement.lang || navigator.language || 'en';
+  const chinese = /^zh\b/i.test(language);
+  const nativeArchiveLabel = /^zh\b/i.test(document.documentElement.lang) ? '归档' : 'Archive chat';
+  const archiveCopy = chinese ? {
+    label: '建议归档',
+    reason: (bytes) => `记录超过 100 MB（当前 ${fileSize(bytes)}），且超过 48 小时没有新消息。`,
+    history: '归档后从侧边栏收起，记录保留，之后可恢复；不会释放磁盘空间。',
+    action: `悬停会话，点击右侧“${nativeArchiveLabel}”按钮归档。`,
+    lastMessage: '最后一条消息',
+  } : {
+    label: 'Archive suggestion',
+    reason: (bytes) => `Session records exceed 100 MB (${fileSize(bytes)}), with no new messages for over 48 hours.`,
+    history: 'Archiving hides this chat from the sidebar; its history stays saved and can be restored. Archiving does not free disk space.',
+    action: 'Hover the chat, then use its Archive button on the right.',
+    lastMessage: 'Last message',
+  };
   const css = document.createElement('style');
   css.dataset.codexModsStyle = 'sidebar-time';
   css.textContent = `
-    .${className} ${badgeSelector}, .${className} ${sizeSelector} { display:inline-block; flex:0 0 auto; min-width:3.5ch; margin-inline-end:8px; font-size:11px; font-variant-numeric:tabular-nums; line-height:inherit; color:inherit; white-space:nowrap; vertical-align:baseline; }
-    .${className} ${badgeSelector} { pointer-events:none; }
+    .${className} ${badgeSelector}, .${className} ${sizeSelector} { display:inline-block; flex:0 0 auto; min-width:3.5ch; font-size:11px; font-variant-numeric:tabular-nums; line-height:inherit; color:inherit; white-space:nowrap; vertical-align:baseline; }
+    .${className} ${badgeSelector} { margin-inline-start:auto; text-align:end; pointer-events:none; }
+    .${className} ${badgeSelector}:has(+ ${sizeSelector})::after { content:' ·'; }
     .${className} ${sizeSelector} { margin-inline-start:auto; min-width:7.5ch; text-align:end; }
+    .${className} ${badgeSelector} + ${sizeSelector} { margin-inline-start:0; }
+    .${className} ${legacySelector} { display:inline-flex; align-items:center; flex:0 0 auto; margin-inline-start:auto; min-height:20px; box-sizing:border-box; padding:1px 5px; border-radius:4px; background:color-mix(in srgb, currentColor 7%, transparent); font-size:10px; line-height:1.4; color:inherit; white-space:nowrap; }
+    .${className} ${legacySelector} + ${sizeSelector} { margin-inline-start:0; }
+    .${className} ${legacySelector} + ${sizeSelector}::before { content:'· '; opacity:.6; }
+    .${className}:is(:hover, :focus-within, :has([aria-expanded="true"])) ${legacySelector},
+    .${className}:is(:hover, :focus-within, :has([aria-expanded="true"])) ${legacySelector} + ${sizeSelector}::before { visibility:hidden; }
     .${className}:is(:hover, :focus-within, :has([aria-expanded="true"])) ${sizeSelector}[data-codex-mods-hover-actions] { visibility:hidden; }
+    .${className}:is(:hover, :focus-within, :has([aria-expanded="true"])) ${badgeSelector}[data-codex-mods-hover-actions] { visibility:hidden; }
     .${className}[data-codex-mods-fill] { background-image:linear-gradient(90deg, color-mix(in srgb, currentColor 7%, transparent), color-mix(in srgb, currentColor 3%, transparent)); background-size:var(--codex-mods-fill) 100%; background-repeat:no-repeat; }
     @media (forced-colors: active) { .${className}[data-codex-mods-fill] { background-image:none; } }
   `;
@@ -45,9 +73,9 @@ export function sidebarTime(options = {}) {
   }
 
   function fieldTime(thread) {
-    if (options.timeField === 'created') return timestamp(thread.createdAt ?? thread.created_at);
-    if (options.timeField === 'updated') return timestamp(thread.updatedAt ?? thread.updated_at);
-    return timestamp(thread.recencyAt ?? thread.recency_at) ?? timestamp(thread.updatedAt ?? thread.updated_at);
+    if (options.timeField === 'created') return timestamp(thread.createdAt ?? thread.created_at ?? thread.sourceCreatedAt);
+    if (options.timeField === 'updated') return timestamp(thread.updatedAt ?? thread.updated_at ?? thread.sourceUpdatedAt);
+    return timestamp(thread.recencyAt ?? thread.recency_at ?? thread.sourceRecencyAt) ?? timestamp(thread.updatedAt ?? thread.updated_at ?? thread.sourceUpdatedAt);
   }
 
   function supportedKind(kind, fallback) {
@@ -59,7 +87,7 @@ export function sidebarTime(options = {}) {
 
   function collect(value) {
     const found = [];
-    const candidates = [value?.catalogSnapshot?.entries, value?.entries, value?.threads, value?.data, Array.isArray(value) ? value : null];
+    const candidates = [value?.catalogSnapshot?.entries, value?.catalogEntries, value?.entries, value?.threads, value?.data, Array.isArray(value) ? value : null];
     for (const list of candidates) {
       if (!Array.isArray(list)) continue;
       for (const entry of list.slice(0, 10000)) {
@@ -140,10 +168,14 @@ export function sidebarTime(options = {}) {
     return `${Math.floor(seconds / (365 * 86400))}y`;
   }
 
-  function findSize(identity) {
-    if (!options.showSize || identity.kind !== 'local' || identity.unknownHost || (identity.host && identity.host !== 'local')) return null;
+  function isLocalSession(identity) {
+    if (identity.kind !== 'local' || identity.unknownHost || (identity.host && identity.host !== 'local')) return false;
     const matches = entries.filter(entry => entry.id === identity.id);
-    if (!identity.host && matches.some(entry => entry.kind !== 'local' || (entry.host && entry.host !== 'local'))) return null;
+    return !!identity.host || !matches.some(entry => entry.kind !== 'local' || (entry.host && entry.host !== 'local'));
+  }
+
+  function findSize(identity) {
+    if (!isLocalSession(identity)) return null;
     const bytes = sessionSizes[identity.id?.toLowerCase()];
     return Number.isSafeInteger(bytes) && bytes >= 0 ? bytes : null;
   }
@@ -155,6 +187,12 @@ export function sidebarTime(options = {}) {
     let unit = 0;
     while (amount >= 1024 && unit < units.length - 1) { amount /= 1024; unit++; }
     return `${amount.toFixed(amount < 10 ? 1 : 0)} ${units[unit]}`;
+  }
+
+  function archiveReason(lastMessage, bytes) {
+    if (!options.showLegacy || !Number.isFinite(lastMessage) || lastMessage <= 0) return null;
+    const idleHours = (Date.now() - lastMessage) / (60 * 60 * 1000);
+    return bytes != null && bytes > 100_000_000 && idleHours > 48 ? 'size' : null;
   }
 
   function rows() {
@@ -180,13 +218,19 @@ export function sidebarTime(options = {}) {
     for (const row of rows()) {
       const identity = rowIdentity(row);
       const time = options.showTime === false ? null : findTime(identity, row);
-      const bytes = findSize(identity);
-      if (time == null && bytes == null) { if (owned.has(row)) remove(row); continue; }
+      const recordBytes = findSize(identity);
+      const bytes = options.showSize ? recordBytes : null;
+      const lastMessage = options.showLegacy && isLocalSession(identity) ? lastMessages[identity.id.toLowerCase()] : null;
+      const busy = row.getAttribute('aria-busy') === 'true' || !!row.querySelector('[role="status"], [aria-busy="true"]');
+      const reason = busy ? null : archiveReason(lastMessage, recordBytes);
+      const legacy = reason != null;
+      if (time == null && bytes == null && !legacy) { if (owned.has(row)) remove(row); continue; }
       // Native rows group title, status, and actions in nested flex containers.
       const title = row.querySelector('[data-thread-title-trigger]');
       const container = title?.parentElement ?? row;
       if (title && getComputedStyle(container).display !== 'flex') { if (owned.has(row)) remove(row); continue; }
       active.add(row);
+      row.classList.add(className);
       let badge = row.querySelector(badgeSelector);
       if (time == null) { badge?.remove(); }
       else {
@@ -194,12 +238,41 @@ export function sidebarTime(options = {}) {
           badge = document.createElement('span');
           badge.dataset.codexModsTime = 'sidebar-time';
         }
-        if (badge.parentElement !== container) container.insertBefore(badge, title ?? container.firstChild);
+        if (title) {
+          if (title.nextSibling !== badge) container.insertBefore(badge, title.nextSibling);
+        } else if (badge.parentElement !== container) {
+          const trailing = container.lastElementChild;
+          if (trailing && !trailing.matches(ownedBadgeSelector)) container.insertBefore(badge, trailing);
+          else container.append(badge);
+        }
         const label = relative(time);
         if (badge.textContent !== label) badge.textContent = label;
         const exact = new Date(time).toLocaleString();
         badge.title = exact;
         badge.setAttribute('aria-label', `${options.timeField === 'created' ? 'Created' : options.timeField === 'updated' ? 'Updated' : 'Last activity'}: ${exact}`);
+        badge.toggleAttribute('data-codex-mods-hover-actions', !!row.querySelector('[data-hover-card-open-immediately] button, [data-hover-card-open-immediately] [role="button"]'));
+      }
+      let legacyBadge = row.querySelector(legacySelector);
+      if (!legacy) legacyBadge?.remove();
+      else {
+        if (!legacyBadge) {
+          legacyBadge = document.createElement('span');
+          legacyBadge.dataset.codexModsLegacy = 'sidebar-legacy';
+          legacyBadge.textContent = archiveCopy.label;
+        }
+        const anchor = time != null ? badge : title;
+        if (anchor) {
+          if (anchor.nextSibling !== legacyBadge) container.insertBefore(legacyBadge, anchor.nextSibling);
+        } else if (legacyBadge.parentElement !== container) {
+          const trailing = container.lastElementChild;
+          if (trailing && !trailing.matches(ownedBadgeSelector)) container.insertBefore(legacyBadge, trailing);
+          else container.append(legacyBadge);
+        }
+        const explanation = archiveCopy.reason(recordBytes);
+        const description = `${explanation} ${archiveCopy.history}\n${archiveCopy.lastMessage}: ${new Date(lastMessage).toLocaleString(language)}.\n${archiveCopy.action}`;
+        legacyBadge.dataset.codexModsArchiveReason = reason;
+        legacyBadge.title = description;
+        legacyBadge.setAttribute('aria-label', `${archiveCopy.label}${chinese ? '。' : '. '}${description}`);
       }
       let sizeBadge = row.querySelector(sizeSelector);
       if (bytes == null) {
@@ -212,8 +285,10 @@ export function sidebarTime(options = {}) {
           sizeBadge = document.createElement('span');
           sizeBadge.dataset.codexModsSize = 'sidebar-size';
         }
-        if (sizeBadge.parentElement !== container) {
-          if (title) container.insertBefore(sizeBadge, title.nextSibling);
+        if (sizeBadge.parentElement !== container || (title && (legacy ? legacyBadge : time == null ? title : badge).nextSibling !== sizeBadge)) {
+          if (legacy) container.insertBefore(sizeBadge, legacyBadge.nextSibling);
+          else if (time != null) container.insertBefore(sizeBadge, badge.nextSibling);
+          else if (title) container.insertBefore(sizeBadge, title.nextSibling);
           else {
             const trailing = container.lastElementChild;
             if (trailing && trailing !== badge && container.children.length > (badge ? 2 : 1)) container.insertBefore(sizeBadge, trailing);
@@ -228,12 +303,11 @@ export function sidebarTime(options = {}) {
         sizeBadge.setAttribute('aria-label', description);
         // Respect rows which already use a native background image.
         if (row.hasAttribute('data-codex-mods-fill') || getComputedStyle(row).backgroundImage === 'none') {
-          const fill = Math.min(1, Math.log1p(bytes / 1024) / Math.log1p(1024 * 1024));
+          const fill = Math.sqrt(Math.min(1, bytes / 1024 ** 3));
           row.style.setProperty('--codex-mods-fill', `${(fill * 100).toFixed(2)}%`);
           row.setAttribute('data-codex-mods-fill', '');
         }
       }
-      row.classList.add(className);
       owned.add(row);
     }
     for (const row of [...owned]) if (!active.has(row)) remove(row);
@@ -276,12 +350,16 @@ export function sidebarTime(options = {}) {
   const observer = new MutationObserver((mutations) => {
     if (mutations.some((mutation) => !(mutation.target.nodeType === 1 ? mutation.target : mutation.target.parentElement)?.closest?.(ownedBadgeSelector))) schedule();
   });
-  if (document.documentElement) observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'data-app-action-sidebar-thread-id', 'data-app-action-sidebar-thread-host-id', 'data-app-action-sidebar-thread-kind', 'data-thread-id', 'data-conversation-id', 'data-host-id', 'data-updated-at', 'data-recency-at', 'data-created-at'] });
+  if (document.documentElement) observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'role', 'aria-busy', 'data-app-action-sidebar-thread-id', 'data-app-action-sidebar-thread-host-id', 'data-app-action-sidebar-thread-kind', 'data-thread-id', 'data-conversation-id', 'data-host-id', 'data-updated-at', 'data-recency-at', 'data-created-at'] });
   const timer = setInterval(refresh, options.refreshMs || 30000);
   const status = () => ({
     installed: !disposed,
     rows: rows().length,
     badges: document.querySelectorAll(badgeSelector).length,
+    legacyBadges: document.querySelectorAll(legacySelector).length,
+    activityRevision,
+    activityEntries: Object.keys(lastMessages).length,
+    localSessionIds: [...new Set(rows().map(rowIdentity).filter(isLocalSession).map(identity => identity.id.toLowerCase()))],
     sizeBadges: document.querySelectorAll(sizeSelector).length,
     sizeRevision,
     sizeEntries: Object.keys(sessionSizes).length,
@@ -289,7 +367,8 @@ export function sidebarTime(options = {}) {
     provider: source === 'none' && owned.size ? 'dom-attributes' : source,
     bootstrapAvailable: !!findBridge(),
     lastRefreshAt,
-    warning: [lastError, sizeWarning].filter(Boolean).join(' ') || null,
+    activityProvider: options.showLegacy ? 'local-message-records' : null,
+    warning: [lastError, sizeWarning, activityWarning].filter(Boolean).join(' ') || null,
   });
   function dispose() {
     disposed = true;
@@ -307,7 +386,15 @@ export function sidebarTime(options = {}) {
     render();
     return status();
   };
-  w[key] = { status, dispose, refresh, setSessionSizes };
+  const setSessionActivity = (messages, warning = null, revision = 0) => {
+    if (disposed) return;
+    lastMessages = messages || {};
+    activityWarning = warning;
+    activityRevision = revision;
+    render();
+    return status();
+  };
+  w[key] = { status, dispose, refresh, setSessionSizes, setSessionActivity };
   return refresh().then(status);
 }
 

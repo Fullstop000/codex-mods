@@ -39,6 +39,23 @@ test('session size can run alone or alongside time, with a custom local Codex ho
   assert.throws(() => argumentsFor(['doctor', '--show-size']), /only supported by enable/);
 });
 
+test('Legacy can run with size and suppresses the numerical clock', () => {
+  const legacy = argumentsFor(['enable', 'sidebar-legacy', '--show-size']);
+  assert.equal(legacy.showLegacy, true);
+  assert.equal(legacy.showTime, false);
+  assert.equal(legacy.showSize, true);
+  const combined = argumentsFor(['enable', 'sidebar-size', '--show-legacy']);
+  assert.equal(combined.showLegacy, true);
+  assert.equal(combined.showTime, false);
+  assert.equal(argumentsFor(['enable', 'sidebar-time', '--show-legacy']).showTime, false);
+  assert.equal(argumentsFor(['enable', 'sidebar-size']).showLegacy, false);
+  assert.throws(() => argumentsFor(['doctor', '--show-legacy']), /only supported by enable/);
+  assert.equal(argumentsFor(['enable', 'sidebar-legacy', '--locale', 'zh-cn']).locale, 'zh-CN');
+  assert.equal(argumentsFor(['enable', 'sidebar-legacy', '--locale', 'en-US']).locale, 'en-US');
+  assert.throws(() => argumentsFor(['enable', 'sidebar-legacy', '--locale', 'not a locale']), /English or Chinese/);
+  assert.throws(() => argumentsFor(['enable', 'sidebar-legacy', '--locale', 'de-DE']), /English and Chinese/);
+});
+
 test('launcher never adds sandbox, signing, or profile overrides', () => {
   assert.deepEqual(launchArguments('http://127.0.0.1:9222'), ['--remote-debugging-address=127.0.0.1', '--remote-debugging-port=9222']);
 });

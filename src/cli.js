@@ -11,6 +11,7 @@ const help = `codex-mods — local runtime extensions for the Codex desktop app
   codex-mods doctor [--endpoint http://127.0.0.1:9222]
   codex-mods enable sidebar-time [options]
   codex-mods enable sidebar-size [options]
+  codex-mods enable sidebar-legacy [options]
   codex-mods disable <extension>
 
 Options:
@@ -19,7 +20,9 @@ Options:
   --restart            Quit and reopen the selected app (macOS/Windows)
   --no-launch          Connect only; do not launch the desktop app
   --time-field FIELD   recency (default, fallback updated), updated, or created
-  --show-size          Also show session record size with sidebar-time
+  --show-size          Also show session record size
+  --show-legacy        Suggest Archive when records >100 MB and idle >48h
+  --locale TAG         Suggestion language: en or zh (default: desktop app)
   --codex-home PATH    Local Codex data directory (default: CODEX_HOME or ~/.codex)
   --threads-file PATH  Optional local JSON metadata snapshot for an adapter
   --row-selector CSS   Explicit row selector for a different app version
@@ -38,13 +41,23 @@ export function argumentsFor(args) {
     'threads-file': { type: 'string' }, 'row-selector': { type: 'string' },
     'refresh-ms': { type: 'string' }, fixture: { type: 'boolean' },
     'show-size': { type: 'boolean' }, 'codex-home': { type: 'string' },
+    'show-legacy': { type: 'boolean' },
+    locale: { type: 'string' },
   } });
   const [command, plugin, ...extra] = parsed.positionals;
   if (extra.length) throw new Error('Unexpected positional arguments.');
   if (parsed.values.help || !command) return { help: true };
   if (!['enable', 'disable', 'doctor'].includes(command)) throw new Error('Unknown command. Use doctor, enable, or disable.');
-  if (command === 'doctor' ? plugin != null : !['sidebar-time', 'sidebar-size'].includes(plugin)) throw new Error('The available extensions are sidebar-time and sidebar-size.');
+  if (command === 'doctor' ? plugin != null : !['sidebar-time', 'sidebar-size', 'sidebar-legacy'].includes(plugin)) throw new Error('The available extensions are sidebar-time, sidebar-size and sidebar-legacy.');
   if (parsed.values['show-size'] && command !== 'enable') throw new Error('--show-size is only supported by enable.');
+  if (parsed.values['show-legacy'] && command !== 'enable') throw new Error('--show-legacy is only supported by enable.');
+  let locale;
+  if (parsed.values.locale) {
+    try { locale = new Intl.Locale(parsed.values.locale).toString(); }
+    catch { throw new Error('--locale must be an English or Chinese locale, such as en-US or zh-CN.'); }
+    if (!['en', 'zh'].includes(new Intl.Locale(locale).language)) throw new Error('--locale currently supports English and Chinese.');
+    if (command !== 'enable') throw new Error('--locale is only supported by enable.');
+  }
   if (parsed.values.restart) {
     if (command !== 'enable') throw new Error('--restart is only supported by enable.');
     if (parsed.values['no-launch'] || parsed.values.fixture) throw new Error('--restart cannot be combined with --no-launch or --fixture.');
@@ -55,7 +68,8 @@ export function argumentsFor(args) {
   if (!Number.isInteger(refreshMs) || refreshMs < 1000 || refreshMs > 3600000) throw new Error('--refresh-ms must be 1000–3600000.');
   const endpoint = parsed.values.endpoint || 'http://127.0.0.1:9222';
   endpointURL(endpoint);
-  return { command, plugin, showTime: plugin !== 'sidebar-size', showSize: plugin === 'sidebar-size' || !!parsed.values['show-size'], codexHome: parsed.values['codex-home'], endpoint, endpointExplicit: !!parsed.values.endpoint, directory: stateDirectory(), app: parsed.values.app, restart: !!parsed.values.restart, noLaunch: !!parsed.values['no-launch'], timeField, rowSelector: parsed.values['row-selector'], refreshMs, threadsFile: parsed.values['threads-file'], fixture: !!parsed.values.fixture };
+  const showLegacy = plugin === 'sidebar-legacy' || !!parsed.values['show-legacy'];
+  return { command, plugin, showTime: plugin === 'sidebar-time' && !showLegacy, showLegacy, locale, showSize: plugin === 'sidebar-size' || !!parsed.values['show-size'], codexHome: parsed.values['codex-home'], endpoint, endpointExplicit: !!parsed.values.endpoint, directory: stateDirectory(), app: parsed.values.app, restart: !!parsed.values.restart, noLaunch: !!parsed.values['no-launch'], timeField, rowSelector: parsed.values['row-selector'], refreshMs, threadsFile: parsed.values['threads-file'], fixture: !!parsed.values.fixture };
 }
 
 export async function main(args) {
